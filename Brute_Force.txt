@@ -65,16 +65,19 @@ function main() {
             badusb.println((base + i.toString()).slice(-pLen));
             i--;
             loopCounter++;
+
             if (loopCounter >= BATCH_SAVE_INTERVAL) {
                 if (!badusb.isConnected()) { return; }
                 if (i >= 0) { saveProgress(pId, i); }
                 loopCounter = 0;
             }
         }
+
         saveProgress(pId + 1, -1);
         loopCounter = 0;
         p++;
     }
+
     storage.remove(STATE_FILE_PATH);
 }
 
